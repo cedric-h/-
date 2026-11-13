@@ -113,8 +113,17 @@ int main(int arg_count, char *args[]) {
         puts("running (λfλx.f x)(λx.x+1)(0)");
 
         struct {
-            Expr pass_add, take_f, take_x, call_f, add, x, f;
+            Expr foreign_0, pass_0, pass_add, take_f, take_x, call_f, add, x, f;
         } ex = {0};
+
+        ex.foreign_0.kind = ExprKind_ForeignVal;
+        ex.foreign_0.debug = "foreign 0";
+        ex.foreign_0.k.foreign_val.payload = 0;
+
+        ex.pass_0.kind = ExprKind_Call;
+        ex.pass_0.debug = "pass 0";
+        ex.pass_0.k.call.arg = &ex.foreign_0;
+        ex.pass_0.k.call.fn = &ex.pass_add;
 
         ex.add.kind = ExprKind_ForeignFn;
         ex.add.debug = "add";
@@ -145,15 +154,16 @@ int main(int arg_count, char *args[]) {
         ex.x.debug = "x";
         ex.x.k.var.from_fn = &ex.take_x;
 
-        Expr *out = expr_eval(&ex.take_f, &ex.add);
-        out = expr_eval(
-            out,
-            &(Expr) {
-                .kind = ExprKind_ForeignVal,
-                .debug = "foreign 42",
-                .k.foreign_val.payload = 42,
-            }
-        );
+        Expr root = {
+            .kind = ExprKind_Fn,
+            .debug = "root",
+            .k.fn.body = &ex.pass_0,
+        };
+        Expr null = {
+            .kind = ExprKind_ForeignVal,
+            .debug = "null",
+        };
+        Expr *out = expr_eval(&root, &null);
         printf(
             "got back '%s' payload = %d\n",
             out->debug,
