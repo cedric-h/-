@@ -1,0 +1,344 @@
+# What's up with Church's `PRED` function, anyway?
+
+## Crash course for Church Numerals
+
+```
+const two = f => x => f(f(x));
+const three = f => x => f(f(f(x)));
+
+console.log({
+    // church numeral to integer
+    'church numeral to integer': three(x => x + 1)(0),
+
+    // addition
+    'addition': three(x => x + 1)(two(x => x + 1)(0)),
+    // ergo
+    // const add = a => b => f => x => a(f)(b(f)(x));
+    // add(three)(three)(x => x + 1)(0)
+    // 6
+
+    'multiplication': three(two(x => x + 1))(0),
+
+    'exponentiation': two(three)(x => x + 1)(0)
+});
+
+// takes church numeral, returns successor, n + 1
+const succ = n => f => x => f( n(f)(x) );
+
+console.log({
+    'adding using succ': three(succ)(three)(x => x + 1)(0),
+});
+```
+
+## PRED?
+
+The opposite of `succ`, she takes the Church Numeral for 3, and subtracts one from it to return two.
+
+Transcribed to JavaScript, she looks like the first parenthetical clause here:
+```
+(n => f => x =>
+    n(r => i => i(r(f)))
+        (u => x)
+        (u => u)
+)
+(f => x => f(f(f(x))))
+(x => x + 1)
+(0)
+```
+
+A real doozy, ain't she.
+
+The last three clauses are simple enough. There's the number 3 in Church numerals, an addition function and a zero to start things off.
+
+That leaves us with just this bit doing anything interesting.
+That `n` is our Church numeral, the `f` is the addition function, and `x` is `0`. Good enough.
+```
+(n => f => x =>
+    n(r => i => i(r(f)))
+        (u => x)
+        (u => u)
+)
+```
+
+You can see that we completely instantiate the Church numeral, but instead of the raw number literal as our `x` value, we use a first-order function, and a second-order function as the `y`.
+```
+n(r => i => r(f))(u => x)
+```
+
+Whatever function is instantiated here, we pass in the identity function and that's it. Whatever that returns is the result of our evaluation.
+```
+...(u => u)
+```
+
+So whatever first-order function this part produces, when we evaluate that function using the identity function as the parameter, we get the final value.
+```
+n(r => i => i(r(f)))(u => x)
+```
+
+The repeated portion of our Church numeral, `f`, becomes `r => i => i(r(f))`.
+Roughly, it's "Take the original addition function `f`, invoke the first parameter `r` with it, and pass the result of that to an invocation of the second parameter, `i`"
+```
+r => i => i(r(f))
+```
+
+Start the repetition with the first order function `u => x`. Remember that `x` is our `0` literal in this case. So, "just ignore whatever we're passed and return `0` instead."
+
+Now, the program will execute the Church numeral `f(f(f(x)))`, but `f` will be `r => i => i(r(f))` and `x` will be `_ => 0`.
+
+Formatting the Church numeral a bit:
+```
+(f)(
+    (f)(
+        (f)(
+            x
+        )
+    )
+)
+```
+
+And substituting in our `f` and `x`:
+```
+(r => i => i(r(f)))(
+    (r => i => i(r(f)))(
+        (r => i => i(r(f)))(
+            _ => 0
+        )
+    )
+)
+```
+
+Focusing on the inner one, going ahead and evaluating the `r(f)`:
+```
+(r => i => i(r(f)))(
+    _ => 0
+)
+```
+
+We have enough to sub in `r`:
+```
+i => i( (_ => 0)(f) )
+```
+
+Since the return value is constant:
+```
+i => i(0)
+```
+
+So our tower becomes a little less inscrutable:
+```
+(r => i => i(r(f)))(
+    (r => i => i(r(f)))(
+        i => i(0)
+    )
+)
+```
+
+Let's focus on the inside again:
+```
+(r => i => i(r(f)))(
+    i => i(0)
+)
+```
+
+Knowing that `f` is `+ 1` and `r` is `i => i(0)`:
+```
+i => i( (i => i(0))(f) ))
+```
+
+And that `f` is `x => x + 1`:
+```
+i => i(i => i(0) + 1)
+```
+
+Should be obvious what to do with our tower now:
+```
+(r => i => i(r(f)))(
+    i => i(i => i(0) + 1)
+)
+```
+
+Becoming:
+```
+i => i( (i => i(i => i(0) + 1))(f) )
+```
+
+Simplifying:
+```
+i => i(i => i(i => i(0) + 1) + 1)
+```
+
+The final function that this returns becomes pretty clear. Invoke `i` on the result of invoking `i` three times, applying `f` twice (because the first `f` was cleverly replaced `u => 0`.)
+```
+n(r => i => i(r(f)))
+    (u => x)
+    (u => u)
+```
+
+We're at the final `u => u`; whatever the function returns when this is applied is what the final program returns:
+```
+(i => i(i => i(i => i(0) + 1) + 1))
+    (u => u)
+```
+
+All the `i`s are identity functions:
+```
+(u => u)( (u => u)( (u => u)(0) + 1) + 1 )
+```
+
+So we're left with:
+```
+0 + 1 + 1
+```
+
+## Meaning what exactly?
+
+So now that we walked through the execution of the program, what did all of that mean? 
+
+```
+(n => f => x =>
+    n(r => i => i(r(f)))
+        (u => x)
+        (u => u)
+)
+```
+
+The `r => i => i(r(f))` effectively replaces the "body" of the Church numeral "loop," although it's better to think of it as a "reduce."
+`i` is whatever the previous iteration returned. On the first iteration, it's `u => u` because that's what the start value is.
+In subsequent iterations, it's `x => x + 1` because that's what `r` returns..
+
+If you were to modify the program to log `r` and `i` right before evaluating `i(r(f))`: 
+```
+(n => f => x =>
+    n(r => i => (console.log({ r, i }), i(r(f))))
+        (u => u)
+        (u => u)
+)
+(f => x => f(f(f(x))))
+(x => x + 1)
+(0)
+```
+
+```
+{ i: u => u, r: i => i(r(f)) }
+{ i: x => x + 1, r: i => i(r(f)) }
+{ i: x => x + 1, r: u => x }
+```
+
+Note how with `i`, the variable changes at the beginning, and with `r`, the variable changes at the end.
+This is because our Church numeral is used to construct a lambda which is then executed at the end.
+The sequence of construction is opposite the sequence of execution, e.g. the function is built "from the outside in" and then executed "from the inside out"
+where `x` is the innermost token in `f(f(f(x)))`.
+
+However, if you log as the functions themselves are constructed, they appear sequential:
+```
+(n => f => x =>
+    n(r => (console.log('r =', r), i => (console.log('i =', i), i(r(f)))))
+        (u => x)
+        (u => u)
+)
+(f => x => f(f(f(x))))
+(x => x + 1)
+(0)
+```
+
+It's misleading, because the `r` being constructed first will be run last with the last `i`, and vice versa.
+```
+r = u => x
+r = i => i(r(f))
+r = i => i(r(f))
+i = u => u
+i = x => x + 1
+i = x => x + 1
+```
+
+So the best intuition for what "r" is doing here is that it's "the function which constructs the body of the loop, using the return value from the previous iteration,"
+and the best intuition for what "i" is doing here is that it's "the constructed body of the loop, which also takes a return value from the previous iteration."
+
+## Honing the intuition
+
+Very well - can we use our newfound intuition to understand other functions which build on top of Church numerals?
+
+Here's a factorial implementation:
+```
+const three = f => x => f(f(f(x)));
+// takes church numeral, returns successor, n + 1
+const succ = n => f => x => f( n(f)(x) );
+const one = f => x => f(x);
+const fact = (
+    n => f =>
+        n
+            (r => a => a(r(succ(a))))
+            (a => f)
+            (one)
+);
+
+fact
+    (three)
+    (x => x + 1)
+    (0)
+```
+
+Or a function for halving a Church numeral:
+This program returns `13`, which is roughly `(3^3)/2`:
+```
+const three = f => x => f(f(f(x)));
+const half = (
+    n => f => x =>
+        n
+            (r => a => b => a( r(b)(a) ))
+            (a => b => x)
+            (u => u)
+            (f)
+)
+
+half
+    (three(three))
+    (x => x + 1)
+    (0)
+```
+
+The orders go ever higher! This one works by alternating values between `a` and `b`. A starts as `u => u` and b starts as `f`, but because they can return alternating values to each other because one's going in -> out and the other's going out <- in, if you only take values from one you end up with half.
+
+
+// ## Meaning what exactly?
+// 
+// So now that we walked through the execution of the program, what did all of that mean? 
+// 
+// ```
+// (n => f => x =>
+//     n(r => i => i(r(f)))
+//         (u => x)
+//         (u => u)
+// )
+// ```
+// 
+// Those accustomed to imperative languages may be accustomed to reading this as follows:
+// - `r => i => i(r(f))` is the "body" of our "reduce" function
+// - `r` is our value that's going to change with each iteration.
+// - It's going to start as `u => 0`, but in the next iteration it's going to be whatever the previous iteration returned.
+// 
+// This line of thinking would give rise to some challenging questions. For example, since `i` is always the identity function, that's going to return whatever we pass to it.
+// 
+// So why isn't `r` `0` every time? How is it possible that things still increment, and only the first iteration is skipped?
+// And why have the identity function there at all if it by definition, doesn't do anything!
+// 
+// What's going on?
+// 
+// You can trivially excise `i`, turning:
+// ```
+//     n(r => i => i(r(f)))
+// ```
+// 
+// Into:
+// ```
+//     n(r => i => r(f))
+// ```
+// But then the program simply returns `0`, not `2`.
+// 
+// How could not calling a meaningless function that simply runs `x => x` change the output of the program?
+// 
+// ## A better mental model
+// 
+// The following errors are present in the above model:
+// - `r => i => i(r(f))` is not the "body" of the reduce function; it's a function that produces the body
+// - `i` is not always the identity function. It's the result of the previous
