@@ -41,7 +41,7 @@ static Expr *expr_resolve(Expr *expr) {
 
 static Expr *expr_eval(Expr *fn, Expr *arg) {
     fn = expr_resolve(fn);
-    arg = expr_resolve(fn);
+    arg = expr_resolve(arg);
 
     if (fn->kind == ExprKind_ForeignFn) {
         assert(arg->kind == ExprKind_ForeignVal);
@@ -155,8 +155,9 @@ int main(int arg_count, char *args[]) {
             }
         );
         printf(
-            "got back '%s'",
-            out->debug
+            "got back '%s' payload = %d\n",
+            out->debug,
+            out->k.foreign_val.payload
         );
 
     }
