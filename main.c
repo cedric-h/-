@@ -24,10 +24,10 @@ struct Expr {
 };
 
 
-static Expr *expr_resolve(Expr *expr);
+static Expr *expr_eval(Expr *expr);
 static Expr *expr_call(Expr *fn, Expr *arg) {
-    fn = expr_resolve(fn);
-    arg = expr_resolve(arg);
+    fn = expr_eval(fn);
+    arg = expr_eval(arg);
 
     if (fn->kind == ExprKind_ForeignFn) {
         assert(arg->kind == ExprKind_ForeignVal);
@@ -44,10 +44,10 @@ static Expr *expr_call(Expr *fn, Expr *arg) {
 
     Expr *body = fn->k.fn.body;
 
-    return expr_resolve(body);
+    return expr_eval(body);
 }
 
-static Expr *expr_resolve(Expr *expr) {
+static Expr *expr_eval(Expr *expr) {
     switch (expr->kind) {
         case ExprKind_Var: {
             Expr *fn = expr->k.var.from_fn;
@@ -66,17 +66,6 @@ static Expr *expr_resolve(Expr *expr) {
         } break;
     }
 }
-
-static Expr *expr_eval(Expr *call) {
-    Expr null = { .kind = ExprKind_ForeignVal, .debug = "null" };
-    Expr fn = {
-        .kind = ExprKind_Fn,
-        .debug = "expr_eval root",
-        .k.fn.body = call,
-        .k.fn.symbol = '?',
-    };
-    return expr_call(&fn, &null);
-};
 
 static void expr_fprint(FILE *f, Expr *expr) {
     switch (expr->kind) {
