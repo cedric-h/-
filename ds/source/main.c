@@ -1,66 +1,112 @@
 // SPDX-License-Identifier: CC0-1.0
 //
-// SPDX-FileContributor: Antonio Niño Díaz, 2024
+// SPDX-FileContributor: Antonio Niño Díaz, 2024-2026
+
+// This example shows how to convert two different backgrounds to 8-bit bitmap
+// mode. Each of them has their own bitmap, but they share the same palette.
+//
+// Be careful with your original images, they combined palette must have at most
+// 256 colors.
 
 #include <nds.h>
 
-const unsigned short palette[256] __attribute__((aligned(4))) __attribute__((visibility("hidden")))= {
-    RGB5(0, 0, 31),
-    RGB5(0, 0, 0),
+typedef enum {
+    fb_PaletteColor_Background,
+    fb_PaletteColor_Grid,
+    fb_PaletteColor_Foreground,
+} fb_PaletteColor;
+
+const unsigned short palette[256]
+__attribute__((aligned(4)))
+__attribute__((visibility("hidden"))) = {
+    [fb_PaletteColor_Background] = RGB5( 0,  0,  0),
+    [fb_PaletteColor_Grid      ] = RGB5( 8,  8,  8),
+    [fb_PaletteColor_Foreground] = RGB5(31, 31, 31),
 };
 
-int main(int argc, char *argv[])
-{
-    // Mode 5 lets you use layers 2 and 3 as a bitmap
-    videoSetMode(MODE_5_2D);
+static void fb_rect(uint16_t *fb, int x, int y) {
+    x -= 1;
+    y -= 1;
+    for (int j = y; j < 2 + y; j++) {
+        for (int i = x; i < 2 + x; i += 2) {
+            /* sets two pixels at once */
+            fb[256 * j / 2 + i / 2] =
+                (fb_PaletteColor_Foreground << 0) |
+                (fb_PaletteColor_Foreground << 8);
+        }
+    }
+}
 
-    // The screen is 256x192 pixels. A 8-bit bitmap that size requires 48 KB
-    // (256 x 192 / 1024). Each VRAM bank is 128 KB, so we need one bank to
-    // have a double buffer setup.
+static void fb_set_px(uint16_t *fb, int x, int y, fb_PaletteColor color) {
+    fb[256*y/2 + x/2] |= (color << 8*(x%2));
+}
+
+typedef struct { int min_x, max_x, min_y, max_y; } fb_Rect;
+static void fb_rect_outline(
+    uint16_t *fb,
+    fb_Rect rect,
+    fb_PaletteColor color
+) {
+    for (int x = rect.min_x; x < rect.max_x; x++)
+        fb_set_px(fb, x, rect.min_y, color);
+
+    for (int x = rect.min_x; x < rect.max_x; x++)
+        fb_set_px(fb, x, rect.max_y, color);
+
+    for (int y = rect.min_y; y <= rect.max_y; y++)
+        fb_set_px(fb, rect.min_x, y, color);
+
+    for (int y = rect.min_y; y <= rect.max_y; y++)
+        fb_set_px(fb, rect.max_x, y, color);
+}
+
+int main(int argc, char *argv[]) {
+    // Mode 5 lets you use layers 2 and 3 as a bitmap
+    videoSetMode(MODE_5_2D), videoSetModeSub(MODE_5_2D);
+
     vramSetPrimaryBanks(
-        VRAM_A_MAIN_BG_0x06000000, VRAM_B_LCD,
-        VRAM_C_LCD, VRAM_D_LCD
+        VRAM_A_MAIN_BG, VRAM_B_LCD,
+        VRAM_C_SUB_BG , VRAM_D_LCD
     );
 
-    int bg = bgInit(2, BgType_Bmp8, BgSize_B8_256x256, 0, 0);
+    // Setup one background on each engine
 
-    int x = 20, y = 30;
+    int bg = bgInitHidden(2, BgType_Bmp8, BgSize_B8_256x256, 0, 0);
+    int bgsub = bgInitHiddenSub(2, BgType_Bmp8, BgSize_B8_256x256, 0, 0);
 
-    /* palette */
+    memset(bgGetGfxPtr(bg), fb_PaletteColor_Background, 256*256);
+    memset(bgGetGfxPtr(bgsub), fb_PaletteColor_Background, 256*256);
+
     memcpy(BG_PALETTE, palette, 512);
-    BG_PALETTE[255] = RGB5(31, 31, 31);
+    memcpy(BG_PALETTE_SUB, palette, 512);
 
-    // Bitmap base 0 is at offset 0 (start of VRAM A) and bitmap base 8 is
-    // at offset 64 KB (4 * 128 * 128 B) (middle of VRAM A).
-    if (bgGetMapBase(bg) == 4)
-        bgSetMapBase(bg, 0);
-    else
-        bgSetMapBase(bg, 4);
+    bgShow(bg), bgShow(bgsub);
 
-    memset(bgGetGfxPtr(bg), 0, 256*256);
+    int x = 40, y = 40;
 
     while (1) {
         swiWaitForVBlank();
 
         scanKeys();
-        u16 keys_held = keysHeld();
-
         touchPosition touch_pos = { 0 };
-        if (keys_held & KEY_TOUCH) {
+        if (keysHeld() & KEY_TOUCH) {
             touchRead(&touch_pos);
             x = touch_pos.px;
             y = touch_pos.py;
         }
 
-        uint16_t *backbuffer = bgGetGfxPtr(bg);
-
-        for (int j = y; j < 10 + y; j++) {
-            for (int i = x; i < 10 + x; i += 2) {
-                // Set two pixels to the last color of the palette at once
-                backbuffer[256 * j / 2 + i / 2] = 255 | (255 << 8);
-            }
-        }
+        fb_rect_outline(
+            bgGetGfxPtr(bgsub),
+            (fb_Rect) { x, x + 10, y, y + 10 },
+            fb_PaletteColor_Foreground
+        );
+        fb_rect_outline(
+            bgGetGfxPtr(bg),
+            (fb_Rect) { x, x + 10, y, y + 10 },
+            fb_PaletteColor_Foreground
+        );
     }
 
     return 0;
 }
+
